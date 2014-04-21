@@ -20,76 +20,22 @@
 package org.elasticsearch.common.io;
 
 import org.apache.lucene.util.Constants;
-import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.ThreadInterruptedException;
 import org.elasticsearch.Version;
 import org.elasticsearch.common.logging.ESLogger;
-import org.elasticsearch.common.logging.ESLoggerFactory;
-import org.elasticsearch.common.unit.TimeValue;
 
 import java.io.*;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  *
  */
 public class FileSystemUtils {
 
-    private static ESLogger logger = ESLoggerFactory.getLogger(FileSystemUtils.class.getName());
-
-    private static final long mkdirsStallTimeout = TimeValue.timeValueMinutes(5).millis();
-    private static final Object mkdirsMutex = new Object();
-    private static volatile Thread mkdirsThread;
-    private static volatile long mkdirsStartTime;
-
     public static boolean mkdirs(File dir) {
-        synchronized (mkdirsMutex) {
-            try {
-                mkdirsThread = Thread.currentThread();
-                mkdirsStartTime = System.currentTimeMillis();
-                return dir.mkdirs();
-            } finally {
-                mkdirsThread = null;
-            }
-        }
+        return dir.mkdirs();
     }
-
-    public static void checkMkdirsStall(long currentTime) {
-        Thread mkdirsThread1 = mkdirsThread;
-        long stallTime = currentTime - mkdirsStartTime;
-        if (mkdirsThread1 != null && (stallTime > mkdirsStallTimeout)) {
-            logger.error("mkdirs stalled for {} on {}, trying to interrupt", new TimeValue(stallTime), mkdirsThread1.getName());
-            mkdirsThread1.interrupt(); // try and interrupt it...
-        }
-    }
-
-    public static int maxOpenFiles(File testDir) {
-        boolean dirCreated = false;
-        if (!testDir.exists()) {
-            dirCreated = true;
-            testDir.mkdirs();
-        }
-        List<RandomAccessFile> files = new ArrayList<>();
-        try {
-            while (true) {
-                files.add(new RandomAccessFile(new File(testDir, "tmp" + files.size()), "rw"));
-            }
-        } catch (IOException ioe) {
-            int i = 0;
-            for (RandomAccessFile raf : files) {
-                IOUtils.closeWhileHandlingException(raf);
-                new File(testDir, "tmp" + i++).delete();
-            }
-            if (dirCreated) {
-                deleteRecursively(testDir);
-            }
-        }
-        return files.size();
-    }
-
 
     public static boolean hasExtensions(File root, String... extensions) {
         if (root != null && root.exists()) {
@@ -128,20 +74,23 @@ public class FileSystemUtils {
         return false;
     }
 
-    public static boolean deleteRecursively(File[] roots) {
+    /**
+     * Deletes the given files recursively. if <tt>deleteRoots</tt> is set to <code>true</code>
+     * the given root files will be deleted as well. Otherwise only their content is deleted.
+     */
+    public static boolean deleteRecursively(File[] roots, boolean deleteRoots) {
         boolean deleted = true;
         for (File root : roots) {
-            deleted &= deleteRecursively(root);
+            deleted &= deleteRecursively(root, deleteRoots);
         }
         return deleted;
     }
 
-    public static boolean deleteRecursively(File root) {
-        return deleteRecursively(root, true);
-    }
-
-    private static boolean innerDeleteRecursively(File root) {
-        return deleteRecursively(root, true);
+    /**
+     * Deletes the given files recursively including the given roots.
+     */
+    public static boolean deleteRecursively(File... roots) {
+       return deleteRecursively(roots, true);
     }
 
     /**
@@ -159,7 +108,7 @@ public class FileSystemUtils {
                 File[] children = root.listFiles();
                 if (children != null) {
                     for (File aChildren : children) {
-                        innerDeleteRecursively(aChildren);
+                        deleteRecursively(aChildren, true);
                     }
                 }
             }
